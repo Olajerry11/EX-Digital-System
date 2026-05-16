@@ -1,0 +1,144 @@
+# =============================================================================
+# EX-DIGITAL — Docker Compose (Full Stack)
+# =============================================================================
+# Services:
+#   postgres  — PostgreSQL 15 database
+#   redis     — Redis cache + rate limiting
+#   backend   — FastAPI core API (auto-migrates on startup)
+#   gateway   — Flask HMAC ERP gateway
+#   frontend  — React PWA (Nginx)
+#
+# Usage:
+#   cp .env.example .env   # fill in secrets
+#   docker compose up --build -d
+# =============================================================================
+
+version: "3.9"
+
+networks:
+  exdigital:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+
+# ---------------------------------------------------------------------------
+# Shared environment injection from .env file
+# ---------------------------------------------------------------------------
+x-env: &common-env
+  env_file: .env
+
+services:
+  # ==========================================================================
+  # PostgreSQL 15
+  # ==========================================================================
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    networks: [exdigital]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-exdigital}
+      POSTGRES_USER: ${POSTGRES_USER:-exdigital}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-exdigital} -d ${POSTGRES_DB:-exdigital}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ==========================================================================
+  # Redis (rate limiting + optional queue)
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks: [exdigital]
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ==========================================================================
+  # Backend — FastAPI Core API
+  # ==========================================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks: [exdigital]
+    <<: *common-env
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-exdigital}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-exdigital}"
+      REDIS_URL: "redis://redis:6379/0"
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      - ./backend:/app  # Hot reload in dev (remove in prod)
+
+  # ==========================================================================
+  # Gateway — Flask HMAC ERP Webhook
+  # ==========================================================================
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks: [exdigital]
+    <<: *common-env
+    environment:
+      CORE_API_INTERNAL_URL: "http://backend:8000"
+    ports:
+      - "5001:5001"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ==========================================================================
+  # Frontend — React PWA (Nginx)
+  # ==========================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks: [exdigital]
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
