@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 // EX-DIGITAL — Network Status Pill Component
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wifi, WifiOff } from 'lucide-react';

@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { authApi } from '../lib/apiClient';
 import { useAuthStore } from '../store/authStore';
 
@@ -159,6 +159,15 @@ export default function LoginPage() {
                 'Sign In'
               )}
             </motion.button>
+            
+            <div className="text-center mt-4">
+              <p className="text-white/40 text-xs">
+                Don't have an account?{' '}
+                <Link to="/register" className="text-primary-400 hover:text-primary-300 transition-colors font-medium">
+                  Register here
+                </Link>
+              </p>
+            </div>
           </form>
 
           {/* Demo credentials */}

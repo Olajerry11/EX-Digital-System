@@ -124,6 +124,64 @@ async def register(
 
 
 # ---------------------------------------------------------------------------
+# POST /auth/self-register  (Public — students & lecturers only)
+# ---------------------------------------------------------------------------
+@router.post(
+    "/self-register",
+    response_model=TokenResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def self_register(
+    payload: RegisterRequest,
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    """
+    Public self-registration for students and lecturers.
+    Admins cannot be created through this endpoint.
+    Returns a JWT so the user is immediately logged in.
+    """
+    # Block admin self-registration
+    if payload.role == UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin accounts cannot be created through self-registration.",
+        )
+
+    # Check for duplicate email or matric number
+    filters = [User.email == str(payload.email).lower()]
+    if payload.matric_number:
+        filters.append(User.matric_number == payload.matric_number.upper())
+
+    dup_check = await db.execute(select(User).where(or_(*filters)))
+    if dup_check.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A user with that email or matric number already exists.",
+        )
+
+    user = User(
+        email=str(payload.email).lower(),
+        password_hash=hash_password(payload.password),
+        role=payload.role,
+        full_name=payload.full_name,
+        matric_number=payload.matric_number.upper() if payload.matric_number else None,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    # Issue JWT immediately
+    token = create_access_token(user.id, user.email, user.role.value)
+    return TokenResponse(
+        access_token=token,
+        expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        user_id=str(user.id),
+        role=user.role.value,
+        full_name=user.full_name,
+    )
+
+
+# ---------------------------------------------------------------------------
 # GET /auth/me
 # ---------------------------------------------------------------------------
 @router.get("/me", response_model=UserOut)

@@ -84,6 +84,8 @@ export const authApi = {
     withRetry(() => api.get('/auth/me').then((r) => r.data)),
   register: (data: object) =>
     withRetry(() => api.post('/auth/register', data).then((r) => r.data)),
+  selfRegister: (data: object) =>
+    withRetry(() => api.post<TokenResponse>('/auth/self-register', data).then((r) => r.data)),
   resetPassword: (data: object) =>
     withRetry(() => api.post('/auth/reset-password', data).then((r) => r.data)),
   bulkImport: (file: File) => {
